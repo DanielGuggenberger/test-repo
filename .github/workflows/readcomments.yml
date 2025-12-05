@@ -1,40 +1,23 @@
-# This is a basic workflow to help you get started with Actions
-
 name: check-comment-test
 
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  count-comments:
     runs-on: ubuntu-latest
 
     permissions:
       pull-requests: read
       issues: read
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
       - name: Count PR comments
-        if: github.event.pull_request != ''   # Nur wenn es ein PR-Event ist
+        if: ${{ github.event_name == 'pull_request' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -42,11 +25,23 @@ jobs:
         run: |
           echo "Reading comments for PR #$PR_NUMBER"
 
-          # GitHub API Request
-          COMMENTS_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments")
+          # Issue-Kommentare laden (Conversation comments)
+          ISSUE_COMMENTS=$(curl -s \
+             -H "Authorization: Bearer $GITHUB_TOKEN" \
+             https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments)
 
-          # Anzahl Kommentare extrahieren (jq ist vorinstalliert)
-          COMMENT_COUNT=$(echo "$COMMENTS_JSON" | jq length)
+          ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq length)
 
-          echo "Anzahl der Kommentare im Pull Request: $COMMENT_COUNT"
+          # Review-Kommentare laden (Inline review comments)
+          REVIEW_COMMENTS=$(curl -s \
+             -H "Authorization: Bearer $GITHUB_TOKEN" \
+             https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/comments)
+
+          REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq length)
+
+          TOTAL=$((ISSUE_COUNT + REVIEW_COUNT))
+
+          echo "Issue Kommentare:  $ISSUE_COUNT"
+          echo "Review Kommentare: $REVIEW_COUNT"
+          echo "--------------------------------"
+          echo "Gesamt Anzahl Kommentare: $TOTAL"
