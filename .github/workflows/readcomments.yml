@@ -1,9 +1,9 @@
-name: check-comment-test
+name: count-comments-on-open-prs
 
 on:
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
 
 jobs:
   count-comments:
@@ -16,32 +16,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Count PR comments
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Count comments for all open PRs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          echo "Reading comments for PR #$PR_NUMBER"
+          echo "Fetching open pull requests for repo: $REPO"
 
-          # Issue-Kommentare laden (Conversation comments)
-          ISSUE_COMMENTS=$(curl -s \
-             -H "Authorization: Bearer $GITHUB_TOKEN" \
-             https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments)
+          # Alle offenen PRs holen
+          PRS=$(curl -s \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$REPO/pulls?state=open")
 
-          ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq length)
+          PR_COUNT=$(echo "$PRS" | jq length)
+          echo "Gefundene offene Pull Requests: $PR_COUNT"
+          echo ""
 
-          # Review-Kommentare laden (Inline review comments)
-          REVIEW_COMMENTS=$(curl -s \
-             -H "Authorization: Bearer $GITHUB_TOKEN" \
-             https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/comments)
+          if [ "$PR_COUNT" -eq 0 ]; then
+            echo "Keine offenen Pull Requests gefunden."
+            exit 0
+          fi
 
-          REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq length)
+          # Jeden PR durchlaufen
+          for i in $(seq 0 $(($PR_COUNT - 1))); do
+            PR_NUMBER=$(echo "$PRS" | jq ".[$i].number")
+            PR_TITLE=$(echo "$PRS" | jq -r ".[$i].title")
 
-          TOTAL=$((ISSUE_COUNT + REVIEW_COUNT))
+            echo "----- Pull Request #$PR_NUMBER: $PR_TITLE -----"
 
-          echo "Issue Kommentare:  $ISSUE_COUNT"
-          echo "Review Kommentare: $REVIEW_COUNT"
-          echo "--------------------------------"
-          echo "Gesamt Anzahl Kommentare: $TOTAL"
+            # Issue-Kommentare (Conversation Tab)
+            ISSUE_COMMENTS=$(curl -s \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments")
+
+            ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq length)
+
+            # Review-Kommentare (Files changed / Reviews)
+            REVIEW_COMMENTS=$(curl -s \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/comments")
+
+            REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq length)
+
+            TOTAL=$((ISSUE_COUNT + REVIEW_COUNT))
+
+            echo "Issue-Kommentare:  $ISSUE_COUNT"
+            echo "Review-Kommentare: $REVIEW_COUNT"
+            echo "Gesamt:            $TOTAL"
+            echo ""
+          done
