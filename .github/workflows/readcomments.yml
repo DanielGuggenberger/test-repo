@@ -1,4 +1,4 @@
-name: count-comments-on-open-prs
+name: count-issue-comments-open-prs
 
 on:
   workflow_dispatch:
@@ -16,19 +16,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Count comments for all open PRs
+      - name: Count issue comments for all open PRs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          echo "Fetching open pull requests for repo: $REPO"
+          echo "Hole alle offenen Pull Requests für Repository: $REPO"
+          echo ""
 
-          # Alle offenen PRs holen
+          # Holen aller offenen Pull Requests
           PRS=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             "https://api.github.com/repos/$REPO/pulls?state=open")
 
           PR_COUNT=$(echo "$PRS" | jq length)
+
           echo "Gefundene offene Pull Requests: $PR_COUNT"
           echo ""
 
@@ -37,31 +39,20 @@ jobs:
             exit 0
           fi
 
-          # Jeden PR durchlaufen
+          # Schleife über alle offenen PRs
           for i in $(seq 0 $(($PR_COUNT - 1))); do
             PR_NUMBER=$(echo "$PRS" | jq ".[$i].number")
             PR_TITLE=$(echo "$PRS" | jq -r ".[$i].title")
 
             echo "----- Pull Request #$PR_NUMBER: $PR_TITLE -----"
 
-            # Issue-Kommentare (Conversation Tab)
+            # Nur ISSUE-KOMMENTARE abrufen (Conversation Tab)
             ISSUE_COMMENTS=$(curl -s \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments")
 
-            ISSUE_COUNT=$(echo "$ISSUE_COMMENTS" | jq length)
+            COMMENT_COUNT=$(echo "$ISSUE_COMMENTS" | jq length)
 
-            # Review-Kommentare (Files changed / Reviews)
-            REVIEW_COMMENTS=$(curl -s \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/comments")
-
-            REVIEW_COUNT=$(echo "$REVIEW_COMMENTS" | jq length)
-
-            TOTAL=$((ISSUE_COUNT + REVIEW_COUNT))
-
-            echo "Issue-Kommentare:  $ISSUE_COUNT"
-            echo "Review-Kommentare: $REVIEW_COUNT"
-            echo "Gesamt:            $TOTAL"
+            echo "Kommentare: $COMMENT_COUNT"
             echo ""
           done
