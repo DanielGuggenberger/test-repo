@@ -78,19 +78,21 @@ jobs:
 
             declare -A COMMIT_STATUS
 
+            # Initial: jeder Commit ist success
             for key in "${!RESULTS[@]}"; do
               COMMIT="${key%%,*}"
-              LOC="${key##*,}"
+              COMMIT_STATUS["$COMMIT"]="success"
+            done
 
+            # Wenn irgendwo failed → Commit failed
+            for key in "${!RESULTS[@]}"; do
+              COMMIT="${key%%,*}"
               if [ "${RESULTS[$key]}" = "failed" ]; then
                 COMMIT_STATUS["$COMMIT"]="failed"
-              else
-                if [ "${COMMIT_STATUS[$COMMIT]}" != "failed" ]; then
-                  COMMIT_STATUS["$COMMIT"]="success"
-                fi
               fi
             done
 
+            # Wenn eine Location fehlt → Commit failed
             for commit in "${!COMMIT_STATUS[@]}"; do
               for loc in "${LOCATIONS[@]}"; do
                 if [ -z "${RESULTS[$commit,$loc]}" ]; then
@@ -98,6 +100,7 @@ jobs:
                 fi
               done
             done
+
 
             echo ""
             echo "Ergebnis:"
