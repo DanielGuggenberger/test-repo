@@ -1,4 +1,4 @@
-name: count-issue-comments-open-prs
+name: count-comments
 
 on:
   workflow_dispatch:
@@ -16,43 +16,98 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Count issue comments for all open PRs
+      - name: Count and evaluate validation comments
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
+          set -e
+
+          LOCATIONS=(
+            "[eu tui]"
+            "[us prd]"
+            "[us int]"
+            "[ap int]"
+            "[eu int]"
+            "[eu prd]"
+            "[ap prd]"
+          )
+
           echo "Hole alle offenen Pull Requests für Repository: $REPO"
           echo ""
 
-          # Holen aller offenen Pull Requests
           PRS=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             "https://api.github.com/repos/$REPO/pulls?state=open")
 
           PR_COUNT=$(echo "$PRS" | jq length)
 
-          echo "Gefundene offene Pull Requests: $PR_COUNT"
-          echo ""
-
           if [ "$PR_COUNT" -eq 0 ]; then
             echo "Keine offenen Pull Requests gefunden."
             exit 0
           fi
 
-          # Schleife über alle offenen PRs
           for i in $(seq 0 $(($PR_COUNT - 1))); do
             PR_NUMBER=$(echo "$PRS" | jq ".[$i].number")
             PR_TITLE=$(echo "$PRS" | jq -r ".[$i].title")
 
             echo "----- Pull Request #$PR_NUMBER: $PR_TITLE -----"
 
-            # Nur ISSUE-KOMMENTARE abrufen (Conversation Tab)
-            ISSUE_COMMENTS=$(curl -s \
+            COMMENTS=$(curl -s \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments")
+              "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+              | jq -r '.[].body')
 
-            COMMENT_COUNT=$(echo "$ISSUE_COMMENTS" | jq length)
+            declare -A RESULTS
 
-            echo "Kommentare: $COMMENT_COUNT"
+            while read -r line; do
+              for loc in "${LOCATIONS[@]}"; do
+                if echo "$line" | grep -q "$loc"; then
+                  COMMIT=$(echo "$line" | sed -n 's/.*commit \([0-9]\+\).*/\1/p')
+
+                  if [ -n "$COMMIT" ]; then
+                    if echo "$line" | grep -qi "succeeded"; then
+                      RESULTS["$COMMIT,$loc"]="success"
+                    else
+                      RESULTS["$COMMIT,$loc"]="failed"
+                    fi
+                  fi
+                fi
+              done
+            done <<< "$COMMENTS"
+
+            declare -A COMMIT_STATUS
+
+            for key in "${!RESULTS[@]}"; do
+              COMMIT="${key%%,*}"
+              LOC="${key##*,}"
+
+              if [ "${RESULTS[$key]}" = "failed" ]; then
+                COMMIT_STATUS["$COMMIT"]="failed"
+              else
+                if [ "${COMMIT_STATUS[$COMMIT]}" != "failed" ]; then
+                  COMMIT_STATUS["$COMMIT"]="success"
+                fi
+              fi
+            done
+
+            for commit in "${!COMMIT_STATUS[@]}"; do
+              for loc in "${LOCATIONS[@]}"; do
+                if [ -z "${RESULTS[$commit,$loc]}" ]; then
+                  COMMIT_STATUS["$commit"]="failed"
+                fi
+              done
+            done
+
+            echo ""
+            echo "Ergebnis:"
+            for commit in "${!COMMIT_STATUS[@]}"; do
+              if [ "${COMMIT_STATUS[$commit]}" = "success" ]; then
+                echo "Commit $commit succeeded completely"
+              else
+                echo "Commit $commit failed"
+              fi
+            done
+
             echo ""
           done
